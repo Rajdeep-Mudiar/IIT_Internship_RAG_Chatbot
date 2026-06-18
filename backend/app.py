@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
@@ -42,6 +43,11 @@ class EmbeddingConfigRequest(BaseModel):
 
 class BenchmarkRequest(BaseModel):
     query: str
+
+class ImageChatRequest(BaseModel):
+    question: str
+    image: str
+
 
 @app.get("/")
 def home():
@@ -296,3 +302,226 @@ Question:
             "results": [],
             "winner": "None"
         }
+
+@app.post("/metrics")
+def metrics(data: ChatRequest):
+    try:
+        docs = retrieve_chunks(data.question)
+    except Exception:
+        docs = []
+    text = " ".join(docs)
+    from broadcast_metrics import analyze_broadcast_text
+    return analyze_broadcast_text(text)
+
+@app.get("/download-csv")
+def download_csv():
+    return FileResponse(
+        "analytics.csv"
+    )
+
+@app.get("/download-pdf")
+def download_pdf():
+    csv_path = "analytics.csv"
+    pdf_path = "analytics_report.pdf"
+    
+    if not os.path.exists(csv_path):
+        return {"status": "error", "message": "No historical runs found to generate PDF."}
+        
+    try:
+        df = pd.read_csv(
+            csv_path,
+            names=["model", "answer", "latency", "words", "length", "grounded", "retrieval", "embed_model", "score"]
+        )
+        # Handle legacy rows where score/embedding might be shifted
+        df["embed_model"] = df["embed_model"].astype(str)
+        df["score"] = df["score"].astype(float)
+        
+        legacy = df["score"].isna()
+        if legacy.any():
+            df.loc[legacy, "score"] = df.loc[legacy, "embed_model"].astype(float)
+            df.loc[legacy, "embed_model"] = "Unknown"
+            
+        df = df.fillna("")
+        
+        # Calculate leaderboard rankings (highest score)
+        leaderboard_df = df.groupby("model").agg(
+            avg_score=("score", "mean"),
+            avg_latency=("latency", "mean"),
+            runs=("score", "count")
+        ).reset_index().sort_values(by="avg_score", ascending=False)
+        
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        
+        doc = SimpleDocTemplate(
+            pdf_path,
+            pagesize=letter,
+            rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36
+        )
+        
+        styles = getSampleStyleSheet()
+        
+        title_style = ParagraphStyle(
+            'TitleStyle',
+            parent=styles['Heading1'],
+            fontName='Helvetica-Bold',
+            fontSize=18,
+            leading=22,
+            textColor=colors.HexColor('#1e1b4b'),
+            spaceAfter=15
+        )
+        
+        section_style = ParagraphStyle(
+            'SectionStyle',
+            parent=styles['Heading2'],
+            fontName='Helvetica-Bold',
+            fontSize=14,
+            leading=18,
+            textColor=colors.HexColor('#4338ca'),
+            spaceBefore=12,
+            spaceAfter=8
+        )
+        
+        normal_style = styles['Normal']
+        
+        story = []
+        story.append(Paragraph("Broadcast Analytics & Multi-LLM Evaluation Report", title_style))
+        story.append(Paragraph(f"Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
+        story.append(Spacer(1, 15))
+        
+        # Section 1: Leaderboard
+        story.append(Paragraph("Model Performance Leaderboard", section_style))
+        leaderboard_data = [["Rank", "Model", "Avg Score", "Avg Latency", "Runs"]]
+        for i, row in enumerate(leaderboard_df.itertuples(), 1):
+            leaderboard_data.append([
+                f"#{i}",
+                row.model,
+                f"{row.avg_score:.2f}",
+                f"{row.avg_latency:.2f}s",
+                str(row.runs)
+            ])
+            
+        t_leaderboard = Table(leaderboard_data, colWidths=[50, 200, 100, 100, 60])
+        t_leaderboard.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#4338ca')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0,0), (-1,0), 6),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor('#f8fafc'), colors.white]),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+            ('FONTSIZE', (0,0), (-1,-1), 10),
+        ]))
+        story.append(t_leaderboard)
+        story.append(Spacer(1, 20))
+        
+        # Section 2: Complete Run History
+        story.append(Paragraph("Historical Run Logs (Recent)", section_style))
+        history_data = [["Run ID", "Model", "Embedding Model", "Latency", "Groundedness", "Words", "Score"]]
+        
+        # Limit to last 20 runs
+        recent_df = df.iloc[-20:].iloc[::-1]
+        for i, row in enumerate(recent_df.itertuples(), 1):
+            embed_name = row.embed_model.split('/')[-1] if '/' in row.embed_model else row.embed_model
+            history_data.append([
+                f"#{len(df) - i + 1}",
+                row.model,
+                embed_name,
+                f"{row.latency:.2f}s",
+                f"{int(row.grounded * 100)}%",
+                str(row.words),
+                f"{row.score:.1f}"
+            ])
+            
+        t_history = Table(history_data, colWidths=[60, 120, 140, 60, 80, 50, 50])
+        t_history.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0,0), (-1,0), 6),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor('#f8fafc'), colors.white]),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+        ]))
+        story.append(t_history)
+        
+        doc.build(story)
+        
+        return FileResponse(pdf_path, media_type="application/pdf", filename="broadcast_analytics_report.pdf")
+    except Exception as e:
+        return {"status": "error", "message": f"PDF compilation failed: {str(e)}"}
+
+@app.post("/audio-upload")
+async def audio_upload(file: UploadFile = File(...)):
+    os.makedirs("uploads", exist_ok=True)
+    audio_path = os.path.join("uploads", file.filename)
+
+    with open(audio_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    try:
+        from audio_analysis import transcribe
+        transcription_text = transcribe(audio_path)
+        
+        txt_filename = os.path.splitext(file.filename)[0] + "_transcript.txt"
+        txt_path = os.path.join("uploads", txt_filename)
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(transcription_text)
+            
+        # Re-index
+        try:
+            doc_data = collection.get()
+            if doc_data and doc_data.get("ids"):
+                collection.delete(ids=doc_data["ids"])
+        except Exception:
+            pass
+
+        process_document(txt_path)
+        
+        return {
+            "status": "success",
+            "message": "Audio uploaded, transcribed, and indexed successfully.",
+            "transcription": transcription_text
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Audio processing failed: {str(e)}"}
+
+@app.post("/image-chat")
+def image_chat(data: ImageChatRequest):
+    try:
+        b64_data = data.image
+        if "," in b64_data:
+            b64_data = b64_data.split(",")[1]
+            
+        payload = {
+            "model": "llama3.2-vision",
+            "prompt": data.question,
+            "images": [b64_data],
+            "stream": False
+        }
+        
+        start_time = time.time()
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        res_data = response.json()
+        answer = res_data.get("response", "")
+        latency = time.time() - start_time
+        
+        return {
+            "status": "success",
+            "answer": answer,
+            "selected_model": "llama3.2-vision",
+            "selected_embed_model": "None",
+            "retrieved_chunks": [],
+            "score": 0.0,
+            "latency": round(latency, 2)
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Vision analysis failed: {str(e)}"}
