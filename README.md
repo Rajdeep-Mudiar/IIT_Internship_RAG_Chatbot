@@ -255,3 +255,16 @@ $$\text{Evaluation Score} = (\text{Retrieval} \times 40) + (\text{Groundedness} 
 ### 6. Benchmark Models
 *   **Endpoint**: `POST /compare`
 *   **Description**: Tests a question against all active LLMs, scores their outputs (speed, groundedness, word length), and returns a ranked leaderboard with a declared winner.
+
+---
+
+## 📚 Feature Deep-Dives
+
+For detailed explanations, mathematical formulations, and step-by-step process walkthroughs of individual system features, refer to the documentation files:
+
+1. 📄 **[PDF Input Ingestion Pipeline](file:///f:/internship/IITG/RAG_Chatbot/docs/pdf_input.md)**: Details structural text extraction, whitespace sanitization, and fallback loops.
+2. 🎵 **[Audio Input Ingestion Pipeline](file:///f:/internship/IITG/RAG_Chatbot/docs/audio_input.md)**: Explains Mel-spectrogram processing and Whisper speech-to-text decoding.
+3. 🎥 **[Video Input Ingestion Pipeline](file:///f:/internship/IITG/RAG_Chatbot/docs/video_input.md)**: Explains MoviePy audio soundtrack extraction, temporary Wav compilation, and Whisper indexing.
+4. ⚙️ **[RAG Retrieval Pipeline](file:///f:/internship/IITG/RAG_Chatbot/docs/rag_pipeline.md)**: Explains text chunking equations, local dense vector embeddings, dynamic ChromaDB dimensions separation, and Cosine similarity.
+5. 🏆 **[LLM Ranking & Evaluation Score](file:///f:/internship/IITG/RAG_Chatbot/docs/ranking_evaluation.md)**: Details the Multi-Criteria LLM score formula, word overlap groundedness ratio, speed decaying curve, and Singular Value Decomposition (SVD) vector projection algorithms.
+

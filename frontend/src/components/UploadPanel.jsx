@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import axios from "axios";
 
 function UploadPanel() {
-  const [uploadMode, setUploadMode] = useState("document"); // "document" | "audio"
+  const [uploadMode, setUploadMode] = useState("document"); // "document" | "audio" | "video"
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("idle"); // idle | uploading | success | error
@@ -49,7 +49,7 @@ function UploadPanel() {
         setStatus("error");
         setMessage("Invalid file format. Please upload PDF, DOCX, or TXT.");
       }
-    } else {
+    } else if (uploadMode === "audio") {
       if (["mp3", "wav", "m4a", "flac", "ogg"].includes(ext)) {
         setFile(selectedFile);
         setStatus("idle");
@@ -58,6 +58,16 @@ function UploadPanel() {
         setFile(null);
         setStatus("error");
         setMessage("Invalid file format. Please upload MP3, WAV, M4A, FLAC, or OGG.");
+      }
+    } else {
+      if (["mp4", "avi", "mkv", "mov", "webm"].includes(ext)) {
+        setFile(selectedFile);
+        setStatus("idle");
+        setMessage("");
+      } else {
+        setFile(null);
+        setStatus("error");
+        setMessage("Invalid file format. Please upload MP4, AVI, MKV, MOV, or WEBM.");
       }
     }
   };
@@ -74,33 +84,42 @@ function UploadPanel() {
     }
 
     setStatus("uploading");
-    setMessage(
-      uploadMode === "document"
-        ? "Uploading and processing document content..."
-        : "Transcribing audio and indexing context with Whisper..."
-    );
+    let loadingMessage = "";
+    let endpoint = "";
+
+    if (uploadMode === "document") {
+      loadingMessage = "Uploading and processing document content...";
+      endpoint = "http://127.0.0.1:8000/upload";
+    } else if (uploadMode === "audio") {
+      loadingMessage = "Transcribing audio and indexing context with Whisper...";
+      endpoint = "http://127.0.0.1:8000/audio-upload";
+    } else {
+      loadingMessage = "Extracting audio soundtrack and transcribing video context with Whisper...";
+      endpoint = "http://127.0.0.1:8000/video-upload";
+    }
+
+    setMessage(loadingMessage);
 
     const formData = new FormData();
     formData.append("file", file);
 
-    const url =
-      uploadMode === "document"
-        ? "http://127.0.0.1:8000/upload"
-        : "http://127.0.0.1:8000/audio-upload";
-
     axios
-      .post(url, formData)
+      .post(endpoint, formData)
       .then((res) => {
         if (res.data.status === "error") {
           setStatus("error");
           setMessage(res.data.message);
         } else {
           setStatus("success");
-          setMessage(
-            uploadMode === "document"
-              ? "Document uploaded and indexed successfully into ChromaDB."
-              : "Audio transcribed and context indexed successfully."
-          );
+          let successMessage = "";
+          if (uploadMode === "document") {
+            successMessage = "Document uploaded and indexed successfully into ChromaDB.";
+          } else if (uploadMode === "audio") {
+            successMessage = "Audio broadcast transcribed and context indexed successfully.";
+          } else {
+            successMessage = "Video soundtrack extracted, transcribed, and indexed successfully.";
+          }
+          setMessage(successMessage);
           setFile(null);
         }
       })
@@ -122,12 +141,14 @@ function UploadPanel() {
   return (
     <div className="upload-container glass-card">
       <h3 className="card-title" style={{ marginBottom: "0.5rem" }}>
-        {uploadMode === "document" ? "Upload RAG Context Document" : "Upload Broadcast Audio File"}
+        {uploadMode === "document" && "Upload RAG Context Document"}
+        {uploadMode === "audio" && "Upload Broadcast Audio File"}
+        {uploadMode === "video" && "Upload Broadcast Video File"}
       </h3>
       <p className="card-subtitle" style={{ marginBottom: "1.5rem" }}>
-        {uploadMode === "document"
-          ? "Supported formats: PDF, DOCX, TXT (Max 10MB)"
-          : "Supported formats: MP3, WAV, M4A, FLAC, OGG (Max 25MB)"}
+        {uploadMode === "document" && "Supported formats: PDF, DOCX, TXT (Max 10MB)"}
+        {uploadMode === "audio" && "Supported formats: MP3, WAV, M4A, FLAC, OGG (Max 25MB)"}
+        {uploadMode === "video" && "Supported formats: MP4, AVI, MKV, MOV, WEBM (Max 50MB)"}
       </p>
 
       <div className="upload-tabs" style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
@@ -155,6 +176,18 @@ function UploadPanel() {
         >
           🎵 Audio Broadcasts
         </button>
+        <button
+          className={`btn ${uploadMode === "video" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => {
+            setUploadMode("video");
+            setFile(null);
+            setStatus("idle");
+            setMessage("");
+          }}
+          style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem" }}
+        >
+          🎥 Video Broadcasts
+        </button>
       </div>
 
       <form
@@ -170,7 +203,13 @@ function UploadPanel() {
           type="file"
           className="file-input-hidden"
           onChange={handleChange}
-          accept={uploadMode === "document" ? ".pdf,.docx,.txt" : ".mp3,.wav,.m4a,.flac,.ogg"}
+          accept={
+            uploadMode === "document"
+              ? ".pdf,.docx,.txt"
+              : uploadMode === "audio"
+              ? ".mp3,.wav,.m4a,.flac,.ogg"
+              : ".mp4,.avi,.mkv,.mov,.webm"
+          }
         />
 
         <div className="upload-prompt">
@@ -197,7 +236,9 @@ function UploadPanel() {
 
       {file && status !== "uploading" && (
         <button className="btn btn-primary btn-upload" onClick={uploadFile}>
-          {uploadMode === "document" ? "Upload & Index Document" : "Upload & Transcribe Audio"}
+          {uploadMode === "document" && "Upload & Index Document"}
+          {uploadMode === "audio" && "Upload & Transcribe Audio"}
+          {uploadMode === "video" && "Upload & Process Video"}
         </button>
       )}
 
