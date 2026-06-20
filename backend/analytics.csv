@@ -324,3 +324,51 @@ qwen3:latest,"The **Quantum Bit Error Rate (QBER)** serves to quantify the **noi
 
 In essence, QBER is critical for evaluating the **trade-offs between performance, noise tolerance, and security** in different QKD protocols. It directly influences the system's ability to maintain secure communication under realistic conditions.",47.8,149,149,0.37,1.0,nomic-embed-text,65.2
 deepseek/deepseek-chat,Benchmarking failed for 'deepseek/deepseek-chat': 402 Client Error: Payment Required for url: https://api.deepseek.com/chat/completions,99.99,0,0,0.0,0.0,nomic-embed-text,0.0
+groq/llama-3.3-70b-versatile,"App development, yaani application development, ka matlab hai mobile app ya software banaana, jo ki different platforms par chal sake, jaise ki Android, iOS, ya web. Ismein kaafi saare cheezein aati hain, jaise ki design, development, testing, aur deployment.
+
+App development mein kaafi saare tools aur technologies ka use hota hai, jaise ki programming languages (jaise ki Java, Kotlin, ya Swift), frameworks (jaise ki React Native ya Flutter), aur development kits (jaise ki Android SDK ya iOS SDK).
+
+App development ke do main types hain:
+
+1. **Native App Development**: Ismein app ko specific platform ke liye banaaya jaata hai, jaise ki Android ke liye Java ya Kotlin, ya iOS ke liye Swift.
+2. **Cross-Platform App Development**: Ismein app ko ek baar banaaya jaata hai, aur fir usse multiple platforms par chalaya ja sakta hai, jaise ki Android, iOS, aur web.
+
+App development ki demand kaafi high hai, aur yeh ek bahut hi rewarding career option hai, jo ki naye technologies aur innovations ke saath badh rahi hai.",1.48,167,167,0.26,1.0,BAAI/bge-large-en-v1.5,138.45
+gemini/gemini-2.5-flash,"Based on the provided text, app development is described as:
+
+*   It primarily focuses on **mobile applications**, giving **WhatsApp** as an example.
+*   It involves building apps for specific operating systems like **Android** (using Kotlin or Java) and **iOS** (using specific tools).
+*   **System dependency** is a very important aspect of app development.
+*   For **cross-platform apps**, **native and Flutter** are mentioned as the best options.
+*   The text implies that there is a **high demand for app developers**.",6.27,79,79,0.18,1.0,BAAI/bge-large-en-v1.5,80.81
+phi:latest,"
+App development refers to the process of creating mobile applications, which are software programs designed for use on smartphones or other mobile devices. This involves writing code in programming languages such as Java or Kotlin, designing user interfaces using frameworks like React or Angular, and testing and debugging the application to ensure it functions correctly. The goal of app development is to create a functional, user-friendly, and visually appealing software that meets the needs of the end-users.
+",7.14,77,77,0.21,1.0,BAAI/bge-large-en-v1.5,78.57
+llama3.2:1b,"Abh development ke liye ek chhota sa focus hai, lekin apne skills ko upayog karke apni ideas ko vyakt karna chahte hain. 
+
+1.  **Apne skills ko upyog karte hue projects banayein**: Apne skill set ko hone se pehle apne goals ko vyakta karo aur apne projects ko shuru karo jo aapko lagta hai. Isse aapko nishchit karne mein madad milti hai ki aapka focus sabse sahi hai.
+2.  **Web development ke liye frameworks aur libraries ka upyog**: Apni projects ko simple and maintainable banane ke liye, apne skills ko use karte hue frameworks aur libraries ka upyog kar sakte hain. Iske alawa, apne project ko responsive design mein badal sakte hai.
+3.  **Cross-platform development**: Android aur iOS ke liye apps develop karna chahiye jo naye users ko aapka app dekhega, isliye aapko cross-platform frameworks ka upyog karke bahut advantage milta hai. 
+4.  **System dependencies ki jaanch karo**: Apne project mein system dependencies ki jaanch karo jo us project ki stability aur performance ko banayenge. 
+5.  **Native development**: Android ke liye native development ya iOS se bhi kaam kar sakte hain, iske alawa, apni skills ko upyog karke apne apps ko smooth run karein.
+
+Vim development ka focus hai, aur aapko nimnalikhit options chahiye:
+
+*   **HTML, CSS, JavaScript**: Apne projects mein UI ki vyavastha bana sakte hain aur user experience improve kar sakte hain.
+*   **Frameworks like yap or Node.js**: Aap apne project ko faster aur more efficient banayengi.
+*   **Cross-platform frameworks**: Android aur iOS ke liye apps develop kar sakte hain.",10.41,251,251,0.21,1.0,BAAI/bge-large-en-v1.5,73.83
+openrouter/meta-llama/llama-3.3-70b-instruct,"According to the context, app development refers to the process of creating mobile applications, such as those for Android and iOS devices. It involves using programming languages like Kotlin, Java, or cross-platform frameworks like Flutter to build apps that can run on various devices and operating systems.
+
+In the context, app development is mentioned as a field with high demand and competition, but also with good compensation. It is contrasted with web development, which focuses on creating websites and web applications that can run on any device with a web browser.
+
+Some key points about app development mentioned in the context include:
+
+* Mobile app development involves creating apps for Android and iOS devices
+* Programming languages like Kotlin, Java, and cross-platform frameworks like Flutter are used
+* App development is a field with high demand and competition, but also with good compensation
+* It is a distinct field from web development, which focuses on creating websites and web applications.",12.94,160,160,0.26,1.0,BAAI/bge-large-en-v1.5,72.15
+gemma:2b,"Sure. Here's the definition of app development:
+
+App development is the process of creating and building software applications for different platforms (Android, iOS, web, etc.) that meet specific user requirements. App developers use their technical skills and creativity to design, build, test, and deploy these applications.",8.18,46,46,0.12,1.0,BAAI/bge-large-en-v1.5,69.99
+qwen3:latest,"Benchmarking failed for 'qwen3:latest': HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=15)",99.99,0,0,0.0,0.0,BAAI/bge-large-en-v1.5,0.0
+deepseek/deepseek-chat,Benchmarking failed for 'deepseek/deepseek-chat': 402 Client Error: Payment Required for url: https://api.deepseek.com/chat/completions,99.99,0,0,0.0,0.0,BAAI/bge-large-en-v1.5,0.0

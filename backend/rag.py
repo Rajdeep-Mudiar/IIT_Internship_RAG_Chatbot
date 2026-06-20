@@ -78,3 +78,16 @@ def retrieve_chunks(question):
     )
 
     return result["documents"][0]
+
+def process_text(text, source_name="transcription"):
+    chunks=[]
+    size=500
+    for i in range(0,len(text),size):
+        chunks.append(text[i:i+size])
+    for i,c in enumerate(chunks):
+        emb=create_embedding(c)
+        collection.add(
+            ids=[str(i) + "_" + source_name],
+            embeddings=[emb],
+            documents=[c]
+        )

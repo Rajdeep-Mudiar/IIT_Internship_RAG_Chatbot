@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
@@ -12,10 +13,11 @@ from dotenv import load_dotenv
 # Load keys
 load_dotenv()
 
-from rag import retrieve_chunks, collection
+from rag import retrieve_chunks, collection, process_text
 from chat import ask_model
 from rag import process_document
-from analytics import save_results
+from export import save_csv
+from pdf_export import create_pdf
 from compare_models import compare_models
 from ranking import rank_models
 from embeddings import get_active_model
@@ -42,6 +44,11 @@ class EmbeddingConfigRequest(BaseModel):
 
 class BenchmarkRequest(BaseModel):
     query: str
+
+class ImageChatRequest(BaseModel):
+    question: str
+    image: str
+
 
 @app.get("/")
 def home():
@@ -282,7 +289,7 @@ Question:
 """
     try:
         results = compare_models(prompt, context)
-        save_results(results)
+        save_csv(results)
         results = rank_models(results)
         winner = results[0]["model"] if results else "None"
         return {
@@ -296,3 +303,149 @@ Question:
             "results": [],
             "winner": "None"
         }
+
+@app.post("/metrics")
+def metrics(data: ChatRequest):
+    try:
+        docs = retrieve_chunks(data.question)
+    except Exception:
+        docs = []
+    text = " ".join(docs)
+    from broadcast_metrics import analyze_broadcast_text
+    return analyze_broadcast_text(text)
+
+@app.get("/download-csv")
+def download_csv():
+    return FileResponse(
+        "analytics.csv",
+        filename="analytics.csv"
+    )
+
+@app.get("/download-pdf")
+def pdf():
+    create_pdf()
+    return FileResponse(
+        "analytics.pdf"
+    )
+
+@app.post("/audio-upload")
+async def audio_upload(
+    file: UploadFile = File(...)
+):
+    os.makedirs("uploads", exist_ok=True)
+    path = f"uploads/{file.filename}"
+    with open(path, "wb") as f:
+        f.write(
+            await file.read()
+        )
+    from audio_analysis import transcribe
+    text = transcribe(path)
+    
+    # Re-index: Clear existing collection
+    try:
+        doc_data = collection.get()
+        if doc_data and doc_data.get("ids"):
+            collection.delete(ids=doc_data["ids"])
+    except Exception:
+        pass
+        
+    process_text(text)
+    return {
+        "message": "Audio Indexed"
+    }
+
+@app.post("/video-upload")
+async def upload_video(
+    file: UploadFile = File(...)
+):
+    os.makedirs("uploads", exist_ok=True)
+    path = f"uploads/{file.filename}"
+    with open(path, "wb") as f:
+        f.write(
+            await file.read()
+        )
+    from video_analysis import extract_audio
+    extract_audio(
+        path,
+        "uploads/temp.wav"
+    )
+    from audio_analysis import transcribe
+    text = transcribe(
+        "uploads/temp.wav"
+    )
+    
+    # Re-index: Clear existing collection
+    try:
+        doc_data = collection.get()
+        if doc_data and doc_data.get("ids"):
+            collection.delete(ids=doc_data["ids"])
+    except Exception:
+        pass
+        
+    process_text(text)
+    return {
+        "message": "Video Indexed"
+    }
+
+@app.post("/image-upload")
+async def image_upload(
+    file: UploadFile = File(...)
+):
+    os.makedirs("uploads", exist_ok=True)
+    path = f"uploads/{file.filename}"
+    with open(path, "wb") as f:
+        f.write(
+            await file.read()
+        )
+    from image_analysis import analyze_image
+    text = analyze_image(path)
+    
+    # Re-index: Clear existing collection
+    try:
+        doc_data = collection.get()
+        if doc_data and doc_data.get("ids"):
+            collection.delete(ids=doc_data["ids"])
+    except Exception:
+        pass
+        
+    process_text(text)
+    return {
+        "message": "Image Indexed"
+    }
+
+@app.post("/image-chat")
+def image_chat(data: ImageChatRequest):
+    try:
+        b64_data = data.image
+        if "," in b64_data:
+            b64_data = b64_data.split(",")[1]
+            
+        payload = {
+            "model": "minicpm-v",
+            "prompt": data.question,
+            "images": [b64_data],
+            "stream": False
+        }
+        
+        start_time = time.time()
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        res_data = response.json()
+        answer = res_data.get("response", "")
+        latency = time.time() - start_time
+        
+        return {
+            "status": "success",
+            "answer": answer,
+            "selected_model": "minicpm-v",
+            "selected_embed_model": "None",
+            "retrieved_chunks": [],
+            "score": 0.0,
+            "latency": round(latency, 2)
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Vision analysis failed: {str(e)}"}
