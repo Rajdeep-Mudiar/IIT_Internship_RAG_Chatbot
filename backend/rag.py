@@ -28,41 +28,31 @@ class ChromaCollectionProxy:
 collection = ChromaCollectionProxy()
 
 def process_document(path):
-
-    ext=os.path.splitext(path)[1]
-
-    if ext==".pdf":
-
-        text=read_pdf(path)
-
-    elif ext==".docx":
-
-        text=read_docx(path)
-
+    import uuid
+    ext = os.path.splitext(path)[1]
+    if ext == ".pdf":
+        text = read_pdf(path)
+    elif ext == ".docx":
+        text = read_docx(path)
     else:
+        text = read_txt(path)
 
-        text=read_txt(path)
-
-    chunks=[]
-
-    size=500
-
-    for i in range(0,len(text),size):
-
+    chunks = []
+    size = 500
+    for i in range(0, len(text), size):
         chunks.append(text[i:i+size])
 
-    for i,c in enumerate(chunks):
-
-        emb=create_embedding(c)
-
+    chroma_ids = []
+    for i, c in enumerate(chunks):
+        emb = create_embedding(c)
+        chunk_id = f"{i}_{uuid.uuid4().hex[:8]}_{os.path.basename(path)}"
         collection.add(
-
-            ids=[str(i)+path],
-
+            ids=[chunk_id],
             embeddings=[emb],
-
             documents=[c]
         )
+        chroma_ids.append(chunk_id)
+    return text, chroma_ids
 
 
 def retrieve_chunks(question):
@@ -80,14 +70,20 @@ def retrieve_chunks(question):
     return result["documents"][0]
 
 def process_text(text, source_name="transcription"):
-    chunks=[]
-    size=500
-    for i in range(0,len(text),size):
+    import uuid
+    chunks = []
+    size = 500
+    for i in range(0, len(text), size):
         chunks.append(text[i:i+size])
-    for i,c in enumerate(chunks):
-        emb=create_embedding(c)
+        
+    chroma_ids = []
+    for i, c in enumerate(chunks):
+        emb = create_embedding(c)
+        chunk_id = f"{i}_{uuid.uuid4().hex[:8]}_{source_name}"
         collection.add(
-            ids=[str(i) + "_" + source_name],
+            ids=[chunk_id],
             embeddings=[emb],
             documents=[c]
-        )
+        )
+        chroma_ids.append(chunk_id)
+    return chroma_ids

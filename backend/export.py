@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from database import save_evaluation_records
 
 def save_csv(results):
     df = pd.DataFrame(results)
@@ -19,3 +20,9 @@ def save_csv(results):
         header=not file_exists,
         index=False
     )
+
+    # Save to MongoDB as well
+    try:
+        save_evaluation_records(results)
+    except Exception as e:
+        print(f"Failed to save evaluation records to MongoDB: {e}")

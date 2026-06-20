@@ -2,23 +2,29 @@ from reportlab.platypus import SimpleDocTemplate
 from reportlab.platypus import Table
 import pandas as pd
 import os
+from database import get_evaluation_records
 
 def create_pdf():
-    csv_path = "analytics.csv"
-    if not os.path.exists(csv_path):
-        # Create empty CSV so read_csv doesn't fail
-        df = pd.DataFrame(columns=["model", "answer", "latency", "words", "length", "grounded", "retrieval", "embed_model", "score"])
-        df.to_csv(csv_path, index=False)
+    expected_cols = ["model", "answer", "latency", "words", "length", "grounded", "retrieval", "embed_model", "score"]
     
-    # Read the CSV file
-    try:
-        df = pd.read_csv(csv_path)
-        # Check if the columns match the expected schema; if not, reload with headers
-        expected_cols = ["model", "answer", "latency", "words", "length", "grounded", "retrieval", "embed_model", "score"]
-        if list(df.columns) != expected_cols:
-            df = pd.read_csv(csv_path, names=expected_cols)
-    except Exception:
-        df = pd.DataFrame(columns=["model", "answer", "latency", "words", "length", "grounded", "retrieval", "embed_model", "score"])
+    # Try loading from MongoDB first
+    records = get_evaluation_records()
+    if records is not None and len(records) > 0:
+        df = pd.DataFrame(records)
+        df = df.reindex(columns=expected_cols).fillna("")
+    else:
+        # Fallback to CSV file
+        csv_path = "analytics.csv"
+        if not os.path.exists(csv_path):
+            df = pd.DataFrame(columns=expected_cols)
+            df.to_csv(csv_path, index=False)
+        
+        try:
+            df = pd.read_csv(csv_path)
+            if list(df.columns) != expected_cols:
+                df = pd.read_csv(csv_path, names=expected_cols)
+        except Exception:
+            df = pd.DataFrame(columns=expected_cols)
 
     # Truncate answer strings and embedding model basenames so they fit on the page
     if "answer" in df.columns:
