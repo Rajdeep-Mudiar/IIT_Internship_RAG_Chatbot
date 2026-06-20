@@ -22,6 +22,20 @@ from compare_models import compare_models
 from ranking import rank_models
 from embeddings import get_active_model
 from benchmark_embeddings import benchmark_models
+from database import (
+    get_evaluation_records,
+    sync_csv_to_mongodb,
+    get_chat_sessions,
+    create_chat_session,
+    save_chat_message,
+    get_chat_messages,
+    delete_chat_session,
+    save_asset,
+    get_assets,
+    get_asset,
+    update_asset,
+    delete_asset_record
+)
 
 app = FastAPI()
 
@@ -33,11 +47,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+def startup_event():
+    sync_csv_to_mongodb()
+
 os.makedirs("uploads", exist_ok=True)
 
 class ChatRequest(BaseModel):
     question: str
     model: str = "auto-select"
+    session_id: str = None
 
 class EmbeddingConfigRequest(BaseModel):
     embedding_model: str
@@ -48,11 +67,115 @@ class BenchmarkRequest(BaseModel):
 class ImageChatRequest(BaseModel):
     question: str
     image: str
+    session_id: str = None
+
+class AssetUpdateRequest(BaseModel):
+    filename: str
+    text_content: str
 
 
 @app.get("/")
 def home():
     return {"status": "success", "message": "Backend Running"}
+
+@app.get("/chat/sessions")
+def list_sessions():
+    return {"sessions": get_chat_sessions()}
+
+@app.post("/chat/sessions")
+def create_session(data: dict = None):
+    title = data.get("title") if data else None
+    session_id = create_chat_session(title)
+    return {"status": "success", "session_id": session_id}
+
+@app.get("/chat/sessions/{session_id}/messages")
+def get_session_messages(session_id: str):
+    return {"messages": get_chat_messages(session_id)}
+
+@app.delete("/chat/sessions/{session_id}")
+def remove_session(session_id: str):
+    success = delete_chat_session(session_id)
+    if success:
+        return {"status": "success", "message": "Session deleted"}
+    return {"status": "error", "message": "Failed to delete session"}
+
+@app.get("/assets")
+def list_assets():
+    return {"assets": get_assets()}
+
+@app.get("/assets/{asset_id}")
+def view_asset(asset_id: str):
+    asset = get_asset(asset_id)
+    if asset:
+        return {"status": "success", "asset": asset}
+    return {"status": "error", "message": "Asset not found"}
+
+@app.put("/assets/{asset_id}")
+def modify_asset(asset_id: str, data: AssetUpdateRequest):
+    asset = get_asset(asset_id)
+    if not asset:
+        return {"status": "error", "message": "Asset not found"}
+    
+    # 1. Delete old chunks from ChromaDB
+    old_ids = asset.get("chroma_ids", [])
+    if old_ids:
+        try:
+            collection.delete(ids=old_ids)
+        except Exception as e:
+            print(f"ChromaDB deletion failed during asset update: {e}")
+            
+    # 2. Re-index new text_content in ChromaDB
+    new_text = data.text_content
+    chunks = []
+    size = 500
+    for i in range(0, len(new_text), size):
+        chunks.append(new_text[i:i+size])
+        
+    import uuid
+    from embeddings import create_embedding
+    new_ids = []
+    for i, c in enumerate(chunks):
+        try:
+            emb = create_embedding(c)
+            chunk_id = f"{i}_{uuid.uuid4().hex[:8]}_{data.filename}"
+            collection.add(
+                ids=[chunk_id],
+                embeddings=[emb],
+                documents=[c]
+            )
+            new_ids.append(chunk_id)
+        except Exception as e:
+            print(f"Failed to index chunk during asset update: {e}")
+            
+    # 3. Save updated fields in MongoDB
+    success = update_asset(asset_id, data.filename, new_text, new_ids)
+    if success:
+        return {"status": "success", "message": "Asset updated successfully"}
+    return {"status": "error", "message": "Failed to update asset metadata"}
+
+@app.delete("/assets/{asset_id}")
+def remove_asset(asset_id: str):
+    result = delete_asset_record(asset_id)
+    if not result:
+        return {"status": "error", "message": "Asset not found in database"}
+    
+    # 1. Delete from ChromaDB
+    chroma_ids = result.get("chroma_ids", [])
+    if chroma_ids:
+        try:
+            collection.delete(ids=chroma_ids)
+        except Exception as e:
+            print(f"Failed to delete chroma IDs for asset {asset_id}: {e}")
+            
+    # 2. Delete physical file
+    file_path = result.get("file_path")
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            print(f"Failed to delete physical file {file_path}: {e}")
+            
+    return {"status": "success", "message": "Asset deleted successfully"}
 
 @app.get("/models")
 def get_models():
@@ -85,6 +208,12 @@ def get_models():
 
 @app.get("/analytics")
 def get_analytics():
+    # Try fetching from MongoDB first
+    records = get_evaluation_records()
+    if records is not None:
+        return {"results": records}
+
+    # Fallback to CSV
     csv_path = "analytics.csv"
     if not os.path.exists(csv_path):
         return {"results": []}
@@ -146,15 +275,15 @@ async def upload(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        # Clear existing ChromaDB collection elements to re-index fresh document
-        try:
-            doc_data = collection.get()
-            if doc_data and doc_data.get("ids"):
-                collection.delete(ids=doc_data["ids"])
-        except Exception:
-            pass
-
-        process_document(path)
+        text, chroma_ids = process_document(path)
+        save_asset({
+            "filename": file.filename,
+            "file_type": "document",
+            "file_path": path,
+            "file_size": os.path.getsize(path),
+            "text_content": text,
+            "chroma_ids": chroma_ids
+        })
     except Exception as e:
         return {"status": "error", "message": f"File uploaded but RAG indexing failed: {str(e)}"}
 
@@ -162,6 +291,11 @@ async def upload(file: UploadFile = File(...)):
 
 @app.post("/chat")
 def chat(data: ChatRequest):
+    session_id = data.session_id or create_chat_session()
+    
+    # Save the user query first
+    save_chat_message(session_id, sender="user", text=data.question)
+
     try:
         doc_data = collection.get()
         chunks = doc_data.get("documents", [])
@@ -209,22 +343,45 @@ Question:
                 
             best_llm = llm_results[0]
             
+            save_chat_message(
+                session_id=session_id,
+                sender="assistant",
+                text=best_llm["answer"],
+                model=best_llm["model"],
+                embedModel=best_emb_name,
+                score=best_llm["score"],
+                latency=best_llm["latency"],
+                sources=top_chunks
+            )
             return {
                 "answer": best_llm["answer"],
                 "retrieved_chunks": top_chunks,
                 "selected_model": best_llm["model"],
                 "selected_embed_model": best_emb_name,
                 "score": best_llm["score"],
-                "latency": best_llm["latency"]
+                "latency": best_llm["latency"],
+                "session_id": session_id
             }
         except Exception as e:
+            err_answer = f"Error running dual-routing auto-selection: {str(e)}"
+            save_chat_message(
+                session_id=session_id,
+                sender="assistant",
+                text=err_answer,
+                model="None",
+                embedModel="None",
+                score=0.0,
+                latency=0.0,
+                sources=chunks[:3] if chunks else []
+            )
             return {
-                "answer": f"Error running dual-routing auto-selection: {str(e)}",
+                "answer": err_answer,
                 "retrieved_chunks": chunks[:3] if chunks else [],
                 "selected_model": "None",
                 "selected_embed_model": "None",
                 "score": 0.0,
-                "latency": 0.0
+                "latency": 0.0,
+                "session_id": session_id
             }
     # Direct model selection mode (uses currently active embedding config)
     else:
@@ -253,22 +410,45 @@ Question:
             start_time = time.time()
             answer = ask_model(data.model, prompt)
             latency = time.time() - start_time
+            save_chat_message(
+                session_id=session_id,
+                sender="assistant",
+                text=answer,
+                model=data.model,
+                embedModel=get_active_model(),
+                score=0.0,
+                latency=round(latency, 2),
+                sources=docs
+            )
             return {
                 "answer": answer,
                 "retrieved_chunks": docs,
                 "selected_model": data.model,
                 "selected_embed_model": get_active_model(),
                 "score": 0.0,
-                "latency": round(latency, 2)
+                "latency": round(latency, 2),
+                "session_id": session_id
             }
         except Exception as e:
+            err_answer = f"Error communicating with model '{data.model}': {str(e)}"
+            save_chat_message(
+                session_id=session_id,
+                sender="assistant",
+                text=err_answer,
+                model=data.model,
+                embedModel=get_active_model(),
+                score=0.0,
+                latency=0.0,
+                sources=docs
+            )
             return {
-                "answer": f"Error communicating with model '{data.model}': {str(e)}",
+                "answer": err_answer,
                 "retrieved_chunks": docs,
                 "selected_model": data.model,
                 "selected_embed_model": get_active_model(),
                 "score": 0.0,
-                "latency": 0.0
+                "latency": 0.0,
+                "session_id": session_id
             }
 
 @app.post("/compare")
@@ -341,15 +521,15 @@ async def audio_upload(
     from audio_analysis import transcribe
     text = transcribe(path)
     
-    # Re-index: Clear existing collection
-    try:
-        doc_data = collection.get()
-        if doc_data and doc_data.get("ids"):
-            collection.delete(ids=doc_data["ids"])
-    except Exception:
-        pass
-        
-    process_text(text)
+    chroma_ids = process_text(text, source_name=file.filename)
+    save_asset({
+        "filename": file.filename,
+        "file_type": "audio",
+        "file_path": path,
+        "file_size": os.path.getsize(path),
+        "text_content": text,
+        "chroma_ids": chroma_ids
+    })
     return {
         "message": "Audio Indexed"
     }
@@ -374,15 +554,15 @@ async def upload_video(
         "uploads/temp.wav"
     )
     
-    # Re-index: Clear existing collection
-    try:
-        doc_data = collection.get()
-        if doc_data and doc_data.get("ids"):
-            collection.delete(ids=doc_data["ids"])
-    except Exception:
-        pass
-        
-    process_text(text)
+    chroma_ids = process_text(text, source_name=file.filename)
+    save_asset({
+        "filename": file.filename,
+        "file_type": "video",
+        "file_path": path,
+        "file_size": os.path.getsize(path),
+        "text_content": text,
+        "chroma_ids": chroma_ids
+    })
     return {
         "message": "Video Indexed"
     }
@@ -400,21 +580,26 @@ async def image_upload(
     from image_analysis import analyze_image
     text = analyze_image(path)
     
-    # Re-index: Clear existing collection
-    try:
-        doc_data = collection.get()
-        if doc_data and doc_data.get("ids"):
-            collection.delete(ids=doc_data["ids"])
-    except Exception:
-        pass
-        
-    process_text(text)
+    chroma_ids = process_text(text, source_name=file.filename)
+    save_asset({
+        "filename": file.filename,
+        "file_type": "image",
+        "file_path": path,
+        "file_size": os.path.getsize(path),
+        "text_content": text,
+        "chroma_ids": chroma_ids
+    })
     return {
         "message": "Image Indexed"
     }
 
 @app.post("/image-chat")
 def image_chat(data: ImageChatRequest):
+    session_id = data.session_id or create_chat_session()
+    
+    # Save the user query (including image preview)
+    save_chat_message(session_id, sender="user", text=data.question, image=data.image)
+
     try:
         b64_data = data.image
         if "," in b64_data:
@@ -438,6 +623,15 @@ def image_chat(data: ImageChatRequest):
         answer = res_data.get("response", "")
         latency = time.time() - start_time
         
+        save_chat_message(
+            session_id=session_id,
+            sender="assistant",
+            text=answer,
+            model="minicpm-v",
+            embedModel="None",
+            score=0.0,
+            latency=round(latency, 2)
+        )
         return {
             "status": "success",
             "answer": answer,
@@ -445,7 +639,22 @@ def image_chat(data: ImageChatRequest):
             "selected_embed_model": "None",
             "retrieved_chunks": [],
             "score": 0.0,
-            "latency": round(latency, 2)
+            "latency": round(latency, 2),
+            "session_id": session_id
         }
     except Exception as e:
-        return {"status": "error", "message": f"Vision analysis failed: {str(e)}"}
+        err_answer = f"Vision analysis failed: {str(e)}"
+        save_chat_message(
+            session_id=session_id,
+            sender="assistant",
+            text=err_answer,
+            model="minicpm-v",
+            embedModel="None",
+            score=0.0,
+            latency=0.0
+        )
+        return {
+            "status": "error",
+            "message": err_answer,
+            "session_id": session_id
+        }

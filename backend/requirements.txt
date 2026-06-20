@@ -7,3 +7,5 @@ pandas
 requests
 pydantic
 python-dotenv
+pymongo
+dnspython
