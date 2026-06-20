@@ -101,9 +101,9 @@ function ChatPanel() {
         .catch((err) => {
           const errMsg = {
             sender: "assistant",
-            text: "Failed to connect to backend vision API. Make sure port 8000 is open and llama3.2-vision is active.",
+            text: "Failed to connect to backend vision API. Make sure port 8000 is open and minicpm-v is active.",
             sources: [],
-            model: "llama3.2-vision",
+            model: "minicpm-v",
             embedModel: "None",
             score: 0,
           };
@@ -159,7 +159,7 @@ function ChatPanel() {
             disabled={!!imagePreview}
           >
             {imagePreview ? (
-              <option value="llama3.2-vision">🤖 Multimodal: llama3.2-vision</option>
+              <option value="minicpm-v">🤖 Multimodal: minicpm-v</option>
             ) : (
               models.map((model) => (
                 <option key={model} value={model}>

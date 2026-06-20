@@ -19,6 +19,7 @@ backend/.env.*
 # Application data and generated indexes
 backend/uploads/*
 backend/vector_db/*
+assets/
 
 # Node / frontend build output
 node_modules/

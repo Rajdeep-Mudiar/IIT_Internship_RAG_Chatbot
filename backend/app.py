@@ -387,6 +387,32 @@ async def upload_video(
         "message": "Video Indexed"
     }
 
+@app.post("/image-upload")
+async def image_upload(
+    file: UploadFile = File(...)
+):
+    os.makedirs("uploads", exist_ok=True)
+    path = f"uploads/{file.filename}"
+    with open(path, "wb") as f:
+        f.write(
+            await file.read()
+        )
+    from image_analysis import analyze_image
+    text = analyze_image(path)
+    
+    # Re-index: Clear existing collection
+    try:
+        doc_data = collection.get()
+        if doc_data and doc_data.get("ids"):
+            collection.delete(ids=doc_data["ids"])
+    except Exception:
+        pass
+        
+    process_text(text)
+    return {
+        "message": "Image Indexed"
+    }
+
 @app.post("/image-chat")
 def image_chat(data: ImageChatRequest):
     try:
@@ -395,7 +421,7 @@ def image_chat(data: ImageChatRequest):
             b64_data = b64_data.split(",")[1]
             
         payload = {
-            "model": "llama3.2-vision",
+            "model": "minicpm-v",
             "prompt": data.question,
             "images": [b64_data],
             "stream": False
@@ -415,7 +441,7 @@ def image_chat(data: ImageChatRequest):
         return {
             "status": "success",
             "answer": answer,
-            "selected_model": "llama3.2-vision",
+            "selected_model": "minicpm-v",
             "selected_embed_model": "None",
             "retrieved_chunks": [],
             "score": 0.0,

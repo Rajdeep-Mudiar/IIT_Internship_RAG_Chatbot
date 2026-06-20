@@ -150,6 +150,8 @@ The system implements a local **Retrieval-Augmented Generation (RAG)** architect
 *   **Document Parsers**: PyPDF (for `.pdf` files) and Python-docx (for `.docx` files).
 *   **Local LLM Engine**: Ollama (serving embeddings and generation models on `http://localhost:11434`).
 
+For a detailed component-by-component breakdown of why each technology is selected and exactly where it is used across the project files, refer to **[techstack.md](file:///f:/internship/IITG/RAG_Chatbot/techstack.md)**.
+
 ---
 
 ## 🚀 Getting Started
@@ -267,4 +269,6 @@ For detailed explanations, mathematical formulations, and step-by-step process w
 3. 🎥 **[Video Input Ingestion Pipeline](file:///f:/internship/IITG/RAG_Chatbot/docs/video_input.md)**: Explains MoviePy audio soundtrack extraction, temporary Wav compilation, and Whisper indexing.
 4. ⚙️ **[RAG Retrieval Pipeline](file:///f:/internship/IITG/RAG_Chatbot/docs/rag_pipeline.md)**: Explains text chunking equations, local dense vector embeddings, dynamic ChromaDB dimensions separation, and Cosine similarity.
 5. 🏆 **[LLM Ranking & Evaluation Score](file:///f:/internship/IITG/RAG_Chatbot/docs/ranking_evaluation.md)**: Details the Multi-Criteria LLM score formula, word overlap groundedness ratio, speed decaying curve, and Singular Value Decomposition (SVD) vector projection algorithms.
+6. 🖼️ **[Image Input Ingestion Pipeline](file:///f:/internship/IITG/RAG_Chatbot/docs/image_input.md)**: Details base64 image encoding, local `minicpm-v` layout description, text extraction, and vector index processing.
+
 

@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import axios from "axios";
 
 function UploadPanel() {
-  const [uploadMode, setUploadMode] = useState("document"); // "document" | "audio" | "video"
+  const [uploadMode, setUploadMode] = useState("document"); // "document" | "audio" | "video" | "image"
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("idle"); // idle | uploading | success | error
@@ -59,7 +59,7 @@ function UploadPanel() {
         setStatus("error");
         setMessage("Invalid file format. Please upload MP3, WAV, M4A, FLAC, or OGG.");
       }
-    } else {
+    } else if (uploadMode === "video") {
       if (["mp4", "avi", "mkv", "mov", "webm"].includes(ext)) {
         setFile(selectedFile);
         setStatus("idle");
@@ -68,6 +68,16 @@ function UploadPanel() {
         setFile(null);
         setStatus("error");
         setMessage("Invalid file format. Please upload MP4, AVI, MKV, MOV, or WEBM.");
+      }
+    } else {
+      if (["png", "jpg", "jpeg"].includes(ext)) {
+        setFile(selectedFile);
+        setStatus("idle");
+        setMessage("");
+      } else {
+        setFile(null);
+        setStatus("error");
+        setMessage("Invalid file format. Please upload PNG, JPG, or JPEG.");
       }
     }
   };
@@ -93,9 +103,12 @@ function UploadPanel() {
     } else if (uploadMode === "audio") {
       loadingMessage = "Transcribing audio and indexing context with Whisper...";
       endpoint = "http://127.0.0.1:8000/audio-upload";
-    } else {
+    } else if (uploadMode === "video") {
       loadingMessage = "Extracting audio soundtrack and transcribing video context with Whisper...";
       endpoint = "http://127.0.0.1:8000/video-upload";
+    } else {
+      loadingMessage = "Running Ollama multimodal analysis to transcribe and index image context...";
+      endpoint = "http://127.0.0.1:8000/image-upload";
     }
 
     setMessage(loadingMessage);
@@ -116,8 +129,10 @@ function UploadPanel() {
             successMessage = "Document uploaded and indexed successfully into ChromaDB.";
           } else if (uploadMode === "audio") {
             successMessage = "Audio broadcast transcribed and context indexed successfully.";
-          } else {
+          } else if (uploadMode === "video") {
             successMessage = "Video soundtrack extracted, transcribed, and indexed successfully.";
+          } else {
+            successMessage = "Image content analyzed, transcribed, and indexed successfully.";
           }
           setMessage(successMessage);
           setFile(null);
@@ -144,11 +159,13 @@ function UploadPanel() {
         {uploadMode === "document" && "Upload RAG Context Document"}
         {uploadMode === "audio" && "Upload Broadcast Audio File"}
         {uploadMode === "video" && "Upload Broadcast Video File"}
+        {uploadMode === "image" && "Upload Broadcast Image File"}
       </h3>
       <p className="card-subtitle" style={{ marginBottom: "1.5rem" }}>
         {uploadMode === "document" && "Supported formats: PDF, DOCX, TXT (Max 10MB)"}
         {uploadMode === "audio" && "Supported formats: MP3, WAV, M4A, FLAC, OGG (Max 25MB)"}
         {uploadMode === "video" && "Supported formats: MP4, AVI, MKV, MOV, WEBM (Max 50MB)"}
+        {uploadMode === "image" && "Supported formats: PNG, JPG, JPEG (Max 15MB)"}
       </p>
 
       <div className="upload-tabs" style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
@@ -188,6 +205,18 @@ function UploadPanel() {
         >
           🎥 Video Broadcasts
         </button>
+        <button
+          className={`btn ${uploadMode === "image" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => {
+            setUploadMode("image");
+            setFile(null);
+            setStatus("idle");
+            setMessage("");
+          }}
+          style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem" }}
+        >
+          🖼️ Images
+        </button>
       </div>
 
       <form
@@ -208,7 +237,9 @@ function UploadPanel() {
               ? ".pdf,.docx,.txt"
               : uploadMode === "audio"
               ? ".mp3,.wav,.m4a,.flac,.ogg"
-              : ".mp4,.avi,.mkv,.mov,.webm"
+              : uploadMode === "video"
+              ? ".mp4,.avi,.mkv,.mov,.webm"
+              : ".png,.jpg,.jpeg"
           }
         />
 
@@ -239,6 +270,7 @@ function UploadPanel() {
           {uploadMode === "document" && "Upload & Index Document"}
           {uploadMode === "audio" && "Upload & Transcribe Audio"}
           {uploadMode === "video" && "Upload & Process Video"}
+          {uploadMode === "image" && "Upload & Process Image"}
         </button>
       )}
 
