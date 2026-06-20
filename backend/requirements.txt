@@ -9,3 +9,4 @@ pydantic
 python-dotenv
 pymongo
 dnspython
+beautifulsoup4

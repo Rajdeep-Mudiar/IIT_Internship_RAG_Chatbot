@@ -73,6 +73,9 @@ class AssetUpdateRequest(BaseModel):
     filename: str
     text_content: str
 
+class URLUploadRequest(BaseModel):
+    url: str
+
 
 @app.get("/")
 def home():
@@ -592,6 +595,56 @@ async def image_upload(
     return {
         "message": "Image Indexed"
     }
+
+@app.post("/url-upload")
+def url_upload(data: URLUploadRequest):
+    url = data.url
+    try:
+        from bs4 import BeautifulSoup
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Remove navigation/footer/styles/scripts elements to keep it clean
+        for element in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            element.decompose()
+            
+        title = soup.title.string.strip() if soup.title else url
+        if not title:
+            title = url
+            
+        text = soup.get_text()
+        
+        # Clean whitespace
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        cleaned_text = "\n".join(chunk for chunk in chunks if chunk)
+        
+        if not cleaned_text.strip():
+            raise ValueError("No readable text could be extracted from the webpage.")
+            
+        # Index in ChromaDB
+        chroma_ids = process_text(cleaned_text, source_name=title)
+        
+        # Save in MongoDB
+        save_asset({
+            "filename": title,
+            "file_type": "url",
+            "file_path": url,
+            "file_size": len(cleaned_text.encode('utf-8')),
+            "text_content": cleaned_text,
+            "chroma_ids": chroma_ids
+        })
+        
+        return {"status": "success", "message": f"Website indexed successfully: {title}"}
+        
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to crawl/index website: {str(e)}"}
 
 @app.post("/image-chat")
 def image_chat(data: ImageChatRequest):
