@@ -103,22 +103,79 @@ function AnalyticsPanel() {
   });
 
   const lineColors = {
-    "qwen3:latest": "#3b82f6",
-    "phi:latest": "#10b981",
-    "gemma:2b": "#f59e0b",
-    "llama3.2:1b": "#8b5cf6",
+    "qwen3:latest": "#3b82f6", // Blue
+    "phi:latest": "#10b981", // Emerald Green
+    "gemma:2b": "#f59e0b", // Amber
+    "llama3.2:1b": "#8b5cf6", // Purple
   };
 
-  const chartDatasets = Object.keys(modelTimelines).map((model) => ({
-    label: model,
-    data: modelTimelines[model],
-    borderColor: lineColors[model] || "#ec4899",
-    backgroundColor: (lineColors[model] || "#ec4899") + "20",
-    tension: 0.3,
-    fill: false,
-    borderWidth: 2,
-    pointRadius: 4,
-  }));
+  const distinctPalette = [
+    "#ec4899", // Pink
+    "#06b6d4", // Cyan
+    "#ef4444", // Red
+    "#84cc16", // Lime Green
+    "#f97316", // Orange
+    "#a855f7", // Purple/Violet
+    "#14b8a6", // Teal
+    "#6366f1", // Indigo
+    "#eab308", // Yellow
+    "#f43f5e", // Rose
+  ];
+
+  // Dynamically assign unique colors to each model
+  const assignedColors = {};
+  const usedColors = new Set();
+  const modelNames = Object.keys(modelTimelines);
+
+  modelNames.forEach((model) => {
+    if (lineColors[model]) {
+      assignedColors[model] = lineColors[model];
+      usedColors.add(lineColors[model]);
+    }
+  });
+
+  let paletteIdx = 0;
+  modelNames.forEach((model) => {
+    if (!assignedColors[model]) {
+      while (paletteIdx < distinctPalette.length && usedColors.has(distinctPalette[paletteIdx])) {
+        paletteIdx++;
+      }
+      if (paletteIdx < distinctPalette.length) {
+        const selectedColor = distinctPalette[paletteIdx];
+        assignedColors[model] = selectedColor;
+        usedColors.add(selectedColor);
+        paletteIdx++;
+      } else {
+        let hash = 0;
+        for (let i = 0; i < model.length; i++) {
+          hash = model.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const hue = Math.abs(hash) % 360;
+        assignedColors[model] = `hsl(${hue}, 75%, 60%)`;
+      }
+    }
+  });
+
+  const getBackgroundColor = (color) => {
+    if (color.startsWith("hsl")) {
+      return color.replace("hsl", "hsla").replace(")", ", 0.12)");
+    }
+    return color + "20";
+  };
+
+  const chartDatasets = modelNames.map((model) => {
+    const color = assignedColors[model];
+    return {
+      label: model,
+      data: modelTimelines[model],
+      borderColor: color,
+      backgroundColor: getBackgroundColor(color),
+      tension: 0.3,
+      fill: false,
+      borderWidth: 2,
+      pointRadius: 4,
+    };
+  });
 
   const chartData = {
     labels: chartLabels,
