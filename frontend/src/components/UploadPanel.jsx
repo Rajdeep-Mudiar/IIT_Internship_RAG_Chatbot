@@ -2,12 +2,15 @@ import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 function UploadPanel() {
-  const [uploadMode, setUploadMode] = useState("document"); // "document" | "audio" | "video" | "image"
+  const [uploadMode, setUploadMode] = useState("document"); // "document" | "audio" | "video" | "image" | "url"
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("idle"); // idle | uploading | success | error
   const [message, setMessage] = useState("");
   const fileInputRef = useRef(null);
+
+  // URL Ingestion State
+  const [websiteUrl, setWebsiteUrl] = useState("");
 
   // Asset CRUD States
   const [assets, setAssets] = useState([]);
@@ -92,7 +95,7 @@ function UploadPanel() {
         setStatus("error");
         setMessage("Invalid file format. Please upload MP4, AVI, MKV, MOV, or WEBM.");
       }
-    } else {
+    } else if (uploadMode === "image") {
       if (["png", "jpg", "jpeg"].includes(ext)) {
         setFile(selectedFile);
         setStatus("idle");
@@ -159,7 +162,32 @@ function UploadPanel() {
           }
           setMessage(successMessage);
           setFile(null);
-          // Refresh list of assets
+          fetchAssets();
+        }
+      })
+      .catch((err) => {
+        setStatus("error");
+        setMessage("Connection to backend server failed. Make sure port 8000 is open.");
+      });
+  };
+
+  const handleIndexUrl = (e) => {
+    e.preventDefault();
+    if (!websiteUrl.trim()) return;
+
+    setStatus("uploading");
+    setMessage("Crawling webpage and parsing text content...");
+
+    axios
+      .post("http://127.0.0.1:8000/url-upload", { url: websiteUrl })
+      .then((res) => {
+        if (res.data.status === "error") {
+          setStatus("error");
+          setMessage(res.data.message);
+        } else {
+          setStatus("success");
+          setMessage(res.data.message);
+          setWebsiteUrl("");
           fetchAssets();
         }
       })
@@ -236,15 +264,17 @@ function UploadPanel() {
           {uploadMode === "audio" && "Upload Broadcast Audio File"}
           {uploadMode === "video" && "Upload Broadcast Video File"}
           {uploadMode === "image" && "Upload Broadcast Image File"}
+          {uploadMode === "url" && "Index Website Content via URL"}
         </h3>
         <p className="card-subtitle" style={{ marginBottom: "1.5rem" }}>
           {uploadMode === "document" && "Supported formats: PDF, DOCX, TXT (Max 10MB)"}
           {uploadMode === "audio" && "Supported formats: MP3, WAV, M4A, FLAC, OGG (Max 25MB)"}
           {uploadMode === "video" && "Supported formats: MP4, AVI, MKV, MOV, WEBM (Max 50MB)"}
           {uploadMode === "image" && "Supported formats: PNG, JPG, JPEG (Max 15MB)"}
+          {uploadMode === "url" && "Crawls webpage text content directly and indexes it into the vector base"}
         </p>
 
-        <div className="upload-tabs" style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
+        <div className="upload-tabs" style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1.5rem" }}>
           <button
             className={`btn ${uploadMode === "document" ? "btn-primary" : "btn-secondary"}`}
             onClick={() => {
@@ -253,7 +283,7 @@ function UploadPanel() {
               setStatus("idle");
               setMessage("");
             }}
-            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem" }}
+            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem", minWidth: "120px" }}
           >
             📄 Text Documents
           </button>
@@ -265,7 +295,7 @@ function UploadPanel() {
               setStatus("idle");
               setMessage("");
             }}
-            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem" }}
+            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem", minWidth: "120px" }}
           >
             🎵 Audio Broadcasts
           </button>
@@ -277,7 +307,7 @@ function UploadPanel() {
               setStatus("idle");
               setMessage("");
             }}
-            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem" }}
+            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem", minWidth: "120px" }}
           >
             🎥 Video Broadcasts
           </button>
@@ -289,59 +319,97 @@ function UploadPanel() {
               setStatus("idle");
               setMessage("");
             }}
-            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem" }}
+            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem", minWidth: "120px" }}
           >
             🖼️ Images
           </button>
+          <button
+            className={`btn ${uploadMode === "url" ? "btn-primary" : "btn-secondary"}`}
+            onClick={() => {
+              setUploadMode("url");
+              setFile(null);
+              setStatus("idle");
+              setMessage("");
+            }}
+            style={{ flex: 1, padding: "0.75rem", fontSize: "0.9rem", minWidth: "120px" }}
+          >
+            🌐 Website URL
+          </button>
         </div>
 
-        <form
-          className={`drag-drop-zone ${dragActive ? "drag-active" : ""}`}
-          onDragEnter={handleDrag}
-          onDragOver={handleDrag}
-          onDragLeave={handleDrag}
-          onDrop={handleDrop}
-          onSubmit={(e) => e.preventDefault()}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="file-input-hidden"
-            onChange={handleChange}
-            accept={
-              uploadMode === "document"
-                ? ".pdf,.docx,.txt"
-                : uploadMode === "audio"
-                ? ".mp3,.wav,.m4a,.flac,.ogg"
-                : uploadMode === "video"
-                ? ".mp4,.avi,.mkv,.mov,.webm"
-                : ".png,.jpg,.jpeg"
-            }
-          />
-
-          <div className="upload-prompt">
-            <svg className="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            {file ? (
-              <div className="file-info">
-                <span className="file-name">{file.name}</span>
-                <span className="file-size">{formatBytes(file.size)}</span>
-              </div>
-            ) : (
-              <p>
-                Drag & drop your file here or{" "}
-                <span className="browse-link" onClick={onButtonClick}>
-                  browse
-                </span>
-              </p>
+        {uploadMode === "url" ? (
+          <form className="url-input-container" onSubmit={handleIndexUrl} style={{ marginTop: "1rem" }}>
+            <label className="modal-label" htmlFor="website-url">Website URL</label>
+            <input
+              id="website-url"
+              type="url"
+              className="url-input-field"
+              placeholder="https://example.com/about-us"
+              value={websiteUrl}
+              onChange={(e) => setWebsiteUrl(e.target.value)}
+              disabled={status === "uploading"}
+              required
+            />
+            {status !== "uploading" && (
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: "100%", marginTop: "0.5rem" }}
+                disabled={!websiteUrl.trim()}
+              >
+                🌐 Index Website Content
+              </button>
             )}
-          </div>
-        </form>
+          </form>
+        ) : (
+          <form
+            className={`drag-drop-zone ${dragActive ? "drag-active" : ""}`}
+            onDragEnter={handleDrag}
+            onDragOver={handleDrag}
+            onDragLeave={handleDrag}
+            onDrop={handleDrop}
+            onSubmit={(e) => e.preventDefault()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="file-input-hidden"
+              onChange={handleChange}
+              accept={
+                uploadMode === "document"
+                  ? ".pdf,.docx,.txt"
+                  : uploadMode === "audio"
+                  ? ".mp3,.wav,.m4a,.flac,.ogg"
+                  : uploadMode === "video"
+                  ? ".mp4,.avi,.mkv,.mov,.webm"
+                  : ".png,.jpg,.jpeg"
+              }
+            />
 
-        {file && status !== "uploading" && (
+            <div className="upload-prompt">
+              <svg className="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              {file ? (
+                <div className="file-info">
+                  <span className="file-name">{file.name}</span>
+                  <span className="file-size">{formatBytes(file.size)}</span>
+                </div>
+              ) : (
+                <p>
+                  Drag & drop your file here or{" "}
+                  <span className="browse-link" onClick={onButtonClick}>
+                    browse
+                  </span>
+                </p>
+              )}
+            </div>
+          </form>
+        )}
+
+        {file && status !== "uploading" && uploadMode !== "url" && (
           <button className="btn btn-primary btn-upload" onClick={uploadFile}>
             {uploadMode === "document" && "Upload & Index Document"}
             {uploadMode === "audio" && "Upload & Transcribe Audio"}
@@ -381,7 +449,7 @@ function UploadPanel() {
       {/* Assets Manager List */}
       <div className="assets-section glass-card">
         <h3 className="card-title">Indexed Knowledge Base Assets</h3>
-        <p className="card-subtitle">Manage uploaded documents, transcripts, and image OCR layouts currently stored in the RAG vector database.</p>
+        <p className="card-subtitle">Manage uploaded documents, transcripts, and crawled web page text currently stored in the RAG vector database.</p>
 
         {assets.length === 0 ? (
           <div className="chat-empty-state" style={{ padding: "2rem 0" }}>
@@ -420,6 +488,7 @@ function UploadPanel() {
                         {asset.file_type === "audio" && "🎵 AUD"}
                         {asset.file_type === "video" && "🎥 VID"}
                         {asset.file_type === "image" && "🖼️ IMG"}
+                        {asset.file_type === "url" && "🌐 WEB"}
                       </span>
                     </td>
                     <td>{formatBytes(asset.file_size)}</td>
@@ -465,7 +534,7 @@ function UploadPanel() {
               </div>
               <div>
                 <label className="modal-label">
-                  {selectedAsset.file_type === "document" ? "Extracted Document Content" : "Extracted Transcript / Context"}
+                  {selectedAsset.file_type === "url" ? "Crawled Webpage Context" : (selectedAsset.file_type === "document" ? "Extracted Document Content" : "Extracted Transcript / Context")}
                 </label>
                 <textarea
                   className="modal-input modal-textarea"
