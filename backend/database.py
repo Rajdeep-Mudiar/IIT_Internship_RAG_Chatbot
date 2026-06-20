@@ -194,6 +194,21 @@ def delete_chat_session(session_id):
         print(f"Error deleting chat session: {e}")
         return False
 
+def update_chat_session_title(session_id, title):
+    db = get_db()
+    if db is None:
+        return False
+    try:
+        now = datetime.utcnow()
+        db.chat_sessions.update_one(
+            {"session_id": session_id},
+            {"$set": {"title": title, "updated_at": now}}
+        )
+        return True
+    except Exception as e:
+        print(f"Error updating chat session title: {e}")
+        return False
+
 # --- UPLOADED ASSETS ---
 
 def save_asset(asset_dict):

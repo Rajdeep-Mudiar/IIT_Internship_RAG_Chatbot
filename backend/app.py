@@ -7,6 +7,7 @@ import json
 import pandas as pd
 import requests
 import time
+from typing import Optional
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -30,6 +31,7 @@ from database import (
     save_chat_message,
     get_chat_messages,
     delete_chat_session,
+    update_chat_session_title,
     save_asset,
     get_assets,
     get_asset,
@@ -55,8 +57,8 @@ os.makedirs("uploads", exist_ok=True)
 
 class ChatRequest(BaseModel):
     question: str
-    model: str = "auto-select"
-    session_id: str = None
+    model: Optional[str] = "auto-select"
+    session_id: Optional[str] = None
 
 class EmbeddingConfigRequest(BaseModel):
     embedding_model: str
@@ -67,7 +69,7 @@ class BenchmarkRequest(BaseModel):
 class ImageChatRequest(BaseModel):
     question: str
     image: str
-    session_id: str = None
+    session_id: Optional[str] = None
 
 class AssetUpdateRequest(BaseModel):
     filename: str
@@ -75,6 +77,14 @@ class AssetUpdateRequest(BaseModel):
 
 class URLUploadRequest(BaseModel):
     url: str
+
+class SummarizeRequest(BaseModel):
+    model: Optional[str] = "auto-select"
+    asset_id: Optional[str] = None
+
+
+class SessionTitleUpdateRequest(BaseModel):
+    title: str
 
 
 @app.get("/")
@@ -101,6 +111,13 @@ def remove_session(session_id: str):
     if success:
         return {"status": "success", "message": "Session deleted"}
     return {"status": "error", "message": "Failed to delete session"}
+
+@app.put("/chat/sessions/{session_id}")
+def modify_session_title(session_id: str, data: SessionTitleUpdateRequest):
+    success = update_chat_session_title(session_id, data.title)
+    if success:
+        return {"status": "success", "message": "Session title updated"}
+    return {"status": "error", "message": "Failed to update session title"}
 
 @app.get("/assets")
 def list_assets():
@@ -144,7 +161,12 @@ def modify_asset(asset_id: str, data: AssetUpdateRequest):
             collection.add(
                 ids=[chunk_id],
                 embeddings=[emb],
-                documents=[c]
+                documents=[c],
+                metadatas=[{
+                    "source": data.filename,
+                    "page": 1,
+                    "chunk": i + 1
+                }]
             )
             new_ids.append(chunk_id)
         except Exception as e:
@@ -256,9 +278,8 @@ def update_embedding_config(data: EmbeddingConfigRequest):
 @app.post("/benchmark-embeddings")
 def run_benchmark_embeddings(data: BenchmarkRequest):
     try:
-        # Try to pull doc chunks from ChromaDB
         doc_data = collection.get()
-        chunks = doc_data.get("documents", [])
+        chunks = doc_data.get("documents", []) if doc_data else []
         
         # Limit to 5 chunks for faster benchmarking execution
         if chunks:
@@ -301,12 +322,44 @@ def chat(data: ChatRequest):
 
     try:
         doc_data = collection.get()
-        chunks = doc_data.get("documents", [])
+        chunks = doc_data.get("documents", []) if doc_data else []
     except Exception:
         chunks = []
 
+    refusal_answer = "Sorry, but I couldn't find this in the context."
+    refusal_keywords = [
+        "i don't know", "don't know based on", "not mentioned in", 
+        "not found in the context", "unable to answer", "cannot answer", 
+        "no information", "context does not provide", "context does not mention", 
+        "context does not contain", "sorry, but i couldn't find", 
+        "sorry, but i could not find", "i'm sorry, but", "i am sorry, but",
+        "could not find this in the context", "couldn't find this in the context",
+        "unavailable"
+    ]
+
     # Dual-routing self-selection mode (routes both embedder and LLM model)
     if data.model == "auto-select":
+        if not chunks:
+            save_chat_message(
+                session_id=session_id,
+                sender="assistant",
+                text=refusal_answer,
+                model="None",
+                embedModel="None",
+                score=0.0,
+                latency=0.0,
+                sources=[]
+            )
+            return {
+                "answer": refusal_answer,
+                "retrieved_chunks": [],
+                "selected_model": "None",
+                "selected_embed_model": "None",
+                "score": 0.0,
+                "latency": 0.0,
+                "session_id": session_id
+            }
+
         try:
             # 1. Run embedding benchmark on document chunks
             emb_results = benchmark_models(data.question, chunks[:5] if chunks else None)
@@ -320,9 +373,43 @@ def chat(data: ChatRequest):
             best_emb_name = best_emb["model"]
 
             # 2. Retrieve Top 3 chunks from the entire ChromaDB collection
-            top_chunks = retrieve_chunks(data.question)
+            top_chunks, top_metadatas = retrieve_chunks(data.question)
             
+            if not top_chunks or all(not c.strip() for c in top_chunks):
+                save_chat_message(
+                    session_id=session_id,
+                    sender="assistant",
+                    text=refusal_answer,
+                    model="None",
+                    embedModel=best_emb_name,
+                    score=0.0,
+                    latency=0.0,
+                    sources=[]
+                )
+                return {
+                    "answer": refusal_answer,
+                    "retrieved_chunks": [],
+                    "selected_model": "None",
+                    "selected_embed_model": best_emb_name,
+                    "score": 0.0,
+                    "latency": 0.0,
+                    "session_id": session_id
+                }
+
             context = "\n".join(top_chunks)
+            
+            sources_list = []
+            for i, text in enumerate(top_chunks):
+                meta = top_metadatas[i] if (top_metadatas and i < len(top_metadatas)) else {}
+                if not meta:
+                    meta = {}
+                sources_list.append({
+                    "text": text,
+                    "source": meta.get("source", "Unknown"),
+                    "page": meta.get("page", 1),
+                    "chunk": meta.get("chunk", i + 1)
+                })
+
             prompt = f"""
 You are an AI Assistant.
 
@@ -345,23 +432,32 @@ Question:
                 raise ValueError("No LLM responses were generated.")
                 
             best_llm = llm_results[0]
+            best_llm_answer = best_llm["answer"]
+            best_llm_score = best_llm["score"]
+            
+            # Check for LLM refusal response
+            best_llm_lower = best_llm_answer.lower()
+            if any(k in best_llm_lower for k in refusal_keywords):
+                best_llm_answer = refusal_answer
+                sources_list = []
+                best_llm_score = 0.0
             
             save_chat_message(
                 session_id=session_id,
                 sender="assistant",
-                text=best_llm["answer"],
+                text=best_llm_answer,
                 model=best_llm["model"],
                 embedModel=best_emb_name,
-                score=best_llm["score"],
+                score=best_llm_score,
                 latency=best_llm["latency"],
-                sources=top_chunks
+                sources=sources_list
             )
             return {
-                "answer": best_llm["answer"],
-                "retrieved_chunks": top_chunks,
+                "answer": best_llm_answer,
+                "retrieved_chunks": sources_list,
                 "selected_model": best_llm["model"],
                 "selected_embed_model": best_emb_name,
-                "score": best_llm["score"],
+                "score": best_llm_score,
                 "latency": best_llm["latency"],
                 "session_id": session_id
             }
@@ -375,25 +471,80 @@ Question:
                 embedModel="None",
                 score=0.0,
                 latency=0.0,
-                sources=chunks[:3] if chunks else []
+                sources=[]
             )
             return {
                 "answer": err_answer,
-                "retrieved_chunks": chunks[:3] if chunks else [],
+                "retrieved_chunks": [],
                 "selected_model": "None",
                 "selected_embed_model": "None",
                 "score": 0.0,
                 "latency": 0.0,
                 "session_id": session_id
             }
+
     # Direct model selection mode (uses currently active embedding config)
     else:
-        try:
-            docs = retrieve_chunks(data.question)
-        except Exception:
-            docs = []
+        if not chunks:
+            save_chat_message(
+                session_id=session_id,
+                sender="assistant",
+                text=refusal_answer,
+                model=data.model,
+                embedModel=get_active_model(),
+                score=0.0,
+                latency=0.0,
+                sources=[]
+            )
+            return {
+                "answer": refusal_answer,
+                "retrieved_chunks": [],
+                "selected_model": data.model,
+                "selected_embed_model": get_active_model(),
+                "score": 0.0,
+                "latency": 0.0,
+                "session_id": session_id
+            }
 
-        context = "\n".join(docs)
+        try:
+            top_chunks, top_metadatas = retrieve_chunks(data.question)
+        except Exception:
+            top_chunks, top_metadatas = [], []
+
+        if not top_chunks or all(not c.strip() for c in top_chunks):
+            save_chat_message(
+                session_id=session_id,
+                sender="assistant",
+                text=refusal_answer,
+                model=data.model,
+                embedModel=get_active_model(),
+                score=0.0,
+                latency=0.0,
+                sources=[]
+            )
+            return {
+                "answer": refusal_answer,
+                "retrieved_chunks": [],
+                "selected_model": data.model,
+                "selected_embed_model": get_active_model(),
+                "score": 0.0,
+                "latency": 0.0,
+                "session_id": session_id
+            }
+
+        context = "\n".join(top_chunks)
+        
+        sources_list = []
+        for i, text in enumerate(top_chunks):
+            meta = top_metadatas[i] if (top_metadatas and i < len(top_metadatas)) else {}
+            if not meta:
+                meta = {}
+            sources_list.append({
+                "text": text,
+                "source": meta.get("source", "Unknown"),
+                "page": meta.get("page", 1),
+                "chunk": meta.get("chunk", i + 1)
+            })
 
         prompt = f"""
 You are an AI Assistant.
@@ -413,6 +564,13 @@ Question:
             start_time = time.time()
             answer = ask_model(data.model, prompt)
             latency = time.time() - start_time
+            
+            # Check for LLM refusal response
+            answer_lower = answer.lower()
+            if any(k in answer_lower for k in refusal_keywords):
+                answer = refusal_answer
+                sources_list = []
+
             save_chat_message(
                 session_id=session_id,
                 sender="assistant",
@@ -421,11 +579,11 @@ Question:
                 embedModel=get_active_model(),
                 score=0.0,
                 latency=round(latency, 2),
-                sources=docs
+                sources=sources_list
             )
             return {
                 "answer": answer,
-                "retrieved_chunks": docs,
+                "retrieved_chunks": sources_list,
                 "selected_model": data.model,
                 "selected_embed_model": get_active_model(),
                 "score": 0.0,
@@ -442,11 +600,11 @@ Question:
                 embedModel=get_active_model(),
                 score=0.0,
                 latency=0.0,
-                sources=docs
+                sources=[]
             )
             return {
                 "answer": err_answer,
-                "retrieved_chunks": docs,
+                "retrieved_chunks": [],
                 "selected_model": data.model,
                 "selected_embed_model": get_active_model(),
                 "score": 0.0,
@@ -457,11 +615,11 @@ Question:
 @app.post("/compare")
 def compare(data: ChatRequest):
     try:
-        docs = retrieve_chunks(data.question)
+        top_chunks, top_metadatas = retrieve_chunks(data.question)
     except Exception:
-        docs = []
+        top_chunks, top_metadatas = [], []
 
-    context = "\n".join(docs)
+    context = "\n".join(top_chunks)
 
     prompt = f"""
 Context:
@@ -490,10 +648,10 @@ Question:
 @app.post("/metrics")
 def metrics(data: ChatRequest):
     try:
-        docs = retrieve_chunks(data.question)
+        top_chunks, top_metadatas = retrieve_chunks(data.question)
     except Exception:
-        docs = []
-    text = " ".join(docs)
+        top_chunks, top_metadatas = [], []
+    text = " ".join(top_chunks)
     from broadcast_metrics import analyze_broadcast_text
     return analyze_broadcast_text(text)
 
@@ -510,6 +668,225 @@ def pdf():
     return FileResponse(
         "analytics.pdf"
     )
+
+def ensure_string_summary(val):
+    if val is None:
+        return ""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, list):
+        bullets = []
+        for item in val:
+            if isinstance(item, dict):
+                line = ", ".join(f"{k}: {v}" for k, v in item.items())
+                bullets.append(f"- {line}")
+            else:
+                bullets.append(f"- {str(item)}")
+        return "\n".join(bullets)
+    if isinstance(val, dict):
+        lines = []
+        for k, v in val.items():
+            if isinstance(v, (dict, list)):
+                lines.append(f"**{k}**:\n{json.dumps(v, indent=2)}")
+            else:
+                lines.append(f"**{k}**: {v}")
+        return "\n".join(lines)
+    return str(val)
+
+@app.post("/summarize")
+def summarize_content(data: SummarizeRequest):
+    text_to_summarize = ""
+    if data.asset_id:
+        asset = get_asset(data.asset_id)
+        if asset:
+            text_to_summarize = asset.get("text_content", "")
+        else:
+            return {"status": "error", "message": "Asset not found"}
+    else:
+        # Concatenate text from all assets
+        assets = get_assets()
+        text_pieces = [a.get("text_content", "") for a in assets if a.get("text_content")]
+        text_to_summarize = "\n\n".join(text_pieces)
+        
+    if not text_to_summarize.strip():
+        return {
+            "status": "error",
+            "message": "No text content found in knowledge base to summarize. Please upload documents first."
+        }
+
+    # Restrict text size for the prompt context window safety
+    max_chars = 6000
+    if len(text_to_summarize) > max_chars:
+        text_to_summarize = text_to_summarize[:max_chars] + "... [truncated]"
+
+    model_to_use = data.model
+    if model_to_use == "auto-select":
+        try:
+            models_resp = get_models()
+            available = models_resp.get("models", [])
+            # Select the first model that is not "auto-select"
+            models_filtered = [m for m in available if m != "auto-select"]
+            # Prefer cloud models if available for higher summary quality
+            cloud_models = [m for m in models_filtered if m.startswith("gemini/") or m.startswith("groq/") or m.startswith("openrouter/")]
+            if cloud_models:
+                model_to_use = cloud_models[0]
+            elif models_filtered:
+                model_to_use = models_filtered[0]
+            else:
+                model_to_use = "qwen3:latest"
+        except Exception:
+            model_to_use = "qwen3:latest"
+
+    prompt = f"""
+Analyze the following document context:
+{text_to_summarize}
+
+Produce three distinct summaries of the context:
+1. A Short Summary (1-2 sentences, brief overview)
+2. A Medium Summary (1-2 paragraphs, highlighting main points)
+3. A Detailed Summary (structured bullet points, comprehensive details)
+
+You MUST respond ONLY with a JSON object in this format (do not wrap in a markdown block, do not include any extra text):
+{{
+  "short": "Write the short summary here...",
+  "medium": "Write the medium summary here...",
+  "detailed": "Write the detailed summary here..."
+}}
+"""
+    try:
+        raw_res = ask_model(model_to_use, prompt)
+        
+        # Clean response string of markdown blocks if present
+        cleaned = raw_res.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+        
+        try:
+            summary_dict = json.loads(cleaned)
+            # Check keys
+            if "short" in summary_dict and "medium" in summary_dict and "detailed" in summary_dict:
+                return {
+                    "status": "success",
+                    "short": ensure_string_summary(summary_dict["short"]),
+                    "medium": ensure_string_summary(summary_dict["medium"]),
+                    "detailed": ensure_string_summary(summary_dict["detailed"]),
+                    "model": model_to_use
+                }
+        except Exception:
+            pass
+            
+        # Fallback split
+        return {
+            "status": "success",
+            "short": "Could not format short summary. Here is raw response:",
+            "medium": raw_res,
+            "detailed": "See raw response above.",
+            "model": model_to_use
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Summarization failed: {str(e)}"}
+
+@app.post("/chat/sessions/{session_id}/summarize")
+def summarize_chat_session(session_id: str, data: dict = None):
+    # 1. Fetch conversation messages
+    messages = get_chat_messages(session_id)
+    if not messages:
+        return {
+            "status": "error",
+            "message": "No conversation messages found in this chat session to summarize."
+        }
+    
+    # 2. Build conversation transcript
+    transcript_lines = []
+    for msg in messages:
+        sender = "User" if msg.get("sender") == "user" else "Assistant"
+        text = msg.get("text", "")
+        transcript_lines.append(f"{sender}: {text}")
+        
+    transcript = "\n".join(transcript_lines)
+    
+    # 3. Limit characters for the model context safety
+    max_chars = 6000
+    if len(transcript) > max_chars:
+        transcript = transcript[:max_chars] + "\n... [transcript truncated]"
+        
+    # 4. Resolve model
+    model_to_use = "auto-select"
+    if data and "model" in data:
+        model_to_use = data["model"]
+        
+    if model_to_use == "auto-select":
+        try:
+            models_resp = get_models()
+            available = models_resp.get("models", [])
+            models_filtered = [m for m in available if m != "auto-select"]
+            cloud_models = [m for m in models_filtered if m.startswith("gemini/") or m.startswith("groq/") or m.startswith("openrouter/")]
+            if cloud_models:
+                model_to_use = cloud_models[0]
+            elif models_filtered:
+                model_to_use = models_filtered[0]
+            else:
+                model_to_use = "qwen3:latest"
+        except Exception:
+            model_to_use = "qwen3:latest"
+
+    # 5. Format prompt
+    prompt = f"""
+Analyze the following conversation transcript between a User and an AI Assistant:
+{transcript}
+
+Produce three distinct summaries of the conversation:
+1. A Short Summary (1-2 sentences, brief overview of the discussion)
+2. A Medium Summary (1-2 paragraphs, highlighting key questions asked and answers provided)
+3. A Detailed Summary (structured bullet points, comprehensive details discussed)
+
+You MUST respond ONLY with a JSON object in this format (do not wrap in a markdown block, do not include any extra text):
+{{
+  "short": "Write the short summary here...",
+  "medium": "Write the medium summary here...",
+  "detailed": "Write the detailed summary here..."
+}}
+"""
+    try:
+        raw_res = ask_model(model_to_use, prompt)
+        
+        cleaned = raw_res.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+        
+        try:
+            summary_dict = json.loads(cleaned)
+            if "short" in summary_dict and "medium" in summary_dict and "detailed" in summary_dict:
+                return {
+                    "status": "success",
+                    "short": ensure_string_summary(summary_dict["short"]),
+                    "medium": ensure_string_summary(summary_dict["medium"]),
+                    "detailed": ensure_string_summary(summary_dict["detailed"]),
+                    "model": model_to_use
+                }
+        except Exception:
+            pass
+            
+        return {
+            "status": "success",
+            "short": "Could not format short summary. Here is raw response:",
+            "medium": raw_res,
+            "detailed": "See raw response above.",
+            "model": model_to_use
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Conversation summarization failed: {str(e)}"}
+
 
 @app.post("/audio-upload")
 async def audio_upload(

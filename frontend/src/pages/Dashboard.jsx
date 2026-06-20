@@ -44,7 +44,9 @@ function Dashboard() {
         }
       })
       .catch((err) => {
-        setError("Failed to communicate with backend. Check if port 8000 is running and active.");
+        setError(
+          "Failed to communicate with backend. Check if port 8000 is running and active.",
+        );
         setLoading(false);
       });
   };
@@ -60,7 +62,7 @@ function Dashboard() {
       case "leaderboard":
         return "🏆 Model Comparison Benchmarking & Leaderboard";
       case "embedding":
-        return "⚙ Settings & Embedding Benchmarks";
+        return "Embedding Benchmarks";
       default:
         return "Dashboard";
     }
@@ -75,11 +77,16 @@ function Dashboard() {
           <div className="header-meta">
             <h1 className="page-title">{getTabTitle()}</h1>
             <p className="page-subtitle">
-              {activeTab === "upload" && "Ingest documents (PDF, DOCX, TXT) to parse, chunk, and index into ChromaDB."}
-              {activeTab === "chat" && "Ask questions based on your uploaded document context with model self-selection."}
-              {activeTab === "analytics" && "Analyze response quality, average latencies, and token diversity statistics."}
-              {activeTab === "leaderboard" && "Benchmark queries across local and cloud LLMs, displaying live Leaderboard ranks."}
-              {activeTab === "embedding" && "Configure vector search settings and visualize SVD clustering scatter plots."}
+              {activeTab === "upload" &&
+                "Ingest documents (PDF, DOCX, TXT) to parse, chunk, and index into ChromaDB."}
+              {activeTab === "chat" &&
+                "Ask questions based on your uploaded document context with model self-selection."}
+              {activeTab === "analytics" &&
+                "Analyze response quality, average latencies, and token diversity statistics."}
+              {activeTab === "leaderboard" &&
+                "Benchmark queries across local and cloud LLMs, displaying live Leaderboard ranks."}
+              {activeTab === "embedding" &&
+                "Configure vector search settings and visualize SVD clustering scatter plots."}
             </p>
           </div>
           <div className="user-profile">
@@ -89,7 +96,9 @@ function Dashboard() {
 
         <div className="content-container">
           {activeTab === "upload" && (
-            <div style={{ maxWidth: "800px", margin: "0 auto", padding: "1rem" }}>
+            <div
+              style={{ maxWidth: "800px", margin: "0 auto", padding: "1rem" }}
+            >
               <UploadPanel />
             </div>
           )}
@@ -107,7 +116,8 @@ function Dashboard() {
               <div className="compare-input-card glass-card">
                 <h3 className="card-title">Run Benchmark Query</h3>
                 <p className="card-subtitle">
-                  This action triggers parallel model querying across Qwen3, Phi, Gemma, Llama, and cloud APIs.
+                  This action triggers parallel model querying across Qwen3,
+                  Phi, Gemma, Llama, and cloud APIs.
                 </p>
 
                 <form onSubmit={triggerCompare} className="compare-form">
@@ -119,7 +129,11 @@ function Dashboard() {
                     onChange={(e) => setCompareQuery(e.target.value)}
                     disabled={loading}
                   />
-                  <button type="submit" className="btn btn-primary" disabled={loading || !compareQuery.trim()}>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={loading || !compareQuery.trim()}
+                  >
                     {loading ? (
                       <span className="loading-spinner-btn">
                         <span className="spinner-small"></span> Benchmarking...
@@ -137,14 +151,23 @@ function Dashboard() {
                 <div className="comparison-loading glass-card">
                   <div className="spinner-large"></div>
                   <h4>Benchmarking Active Models</h4>
-                  <p>Querying local LLMs through Ollama, evaluating groundedness, and compiling leaderboard scores...</p>
+                  <p>
+                    Querying local LLMs through Ollama, evaluating groundedness,
+                    and compiling leaderboard scores...
+                  </p>
                 </div>
               )}
 
               {!loading && results.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2rem",
+                  }}
+                >
                   <Leaderboard results={results} />
-                  
+
                   <ModelTable results={results} winner={winner} />
 
                   <div className="charts-grid">
@@ -158,12 +181,21 @@ function Dashboard() {
 
               {!loading && results.length === 0 && !error && (
                 <div className="compare-empty-state glass-card">
-                  <svg className="compare-empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+                  <svg
+                    className="compare-empty-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                  >
                     <circle cx="12" cy="12" r="10"></circle>
                     <line x1="12" y1="16" x2="12" y2="12"></line>
                     <line x1="12" y1="8" x2="12.01" y2="8"></line>
                   </svg>
-                  <p>Enter a prompt above to compile real-time latency, leaderboard ranking, and accuracy charts.</p>
+                  <p>
+                    Enter a prompt above to compile real-time latency,
+                    leaderboard ranking, and accuracy charts.
+                  </p>
                 </div>
               )}
             </div>
